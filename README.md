@@ -3,7 +3,7 @@
 
 ## About Our Work
 
-Update: 2024/02/10: We have created a repository for the paper titled *Diffmv: A Unified Diffusion Framework for Healthcare Predictions with Random Missing Views and View Laziness*, which has been submitted to the *SIGKDD 2025*. In this repository, we offer the original sample datasets, preprocessing scripts, and algorithm files to showcase the reproducibility of our work.
+Update: 2025/02/10: We have created a repository for the paper titled *Diffmv: A Unified Diffusion Framework for Healthcare Predictions with Random Missing Views and View Laziness*, which has been submitted to the *SIGKDD 2025*. In this repository, we offer the original sample datasets, preprocessing scripts, and algorithm files to showcase the reproducibility of our work.
 
 ![image-20250111103132521](https://s2.loli.net/2025/01/11/5ZKURGucnmApWeJ.png)
 
