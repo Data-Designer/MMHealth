@@ -4,9 +4,9 @@
 """
 # File       : metrics.py
 # Time       ：12/11/2024 7:06 pm
-# Author     ：XXXX
+# Author     ：Chuang Zhao
 # version    ：python 
-# Description：
+# Description：ack pyhealth
 """
 
 
@@ -38,7 +38,13 @@ from config import config
 from collections import Counter
 
 
-def group_rec(y, p, pred, patient_ids, group_p): #
+def group_rec(y, p, pred, patient_ids, group_p): # 这个或许可以扩展到其他的multi-class啥的
+    # jaccard, f1-score, precision, recall, roc_auc, pr_auc
+    # print(group_p)
+    # print("==========")
+    # print(patient_ids) # ['85424', '2613', '4931', '90917']
+    # print(group_p)
+    # print("AAAAAA", patient_ids)
     patient_ids = np.array([group_p[id] for id in patient_ids]) # rare type
     zero_indices = np.where(patient_ids == 'G1')[0]
     one_indices = np.where(patient_ids == 'G2')[0]
@@ -247,6 +253,16 @@ def multiclass_metrics_fn(
                 y_true, y_prob, average="weighted", multi_class="ovr"
             )
             output["roc_auc_weighted_ovr"] = roc_auc_weighted_ovr
+        ##### rebuattl
+        elif metric == "rmse":
+            rmse = np.sqrt(sklearn_metrics.mean_squared_error(y_true, y_pred))
+            output["rmse"] = rmse
+        elif metric == "mae":
+            mae = sklearn_metrics.mean_absolute_error(y_true, y_pred)
+            output["mae"] = mae
+        ##### rebuattl
+
+
         elif metric == "accuracy":
             accuracy = sklearn_metrics.accuracy_score(y_true, y_pred)
             output["accuracy"] = accuracy

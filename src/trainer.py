@@ -4,7 +4,7 @@
 """
 # File       : trainer.py
 # Time       ：4/11/2024 3:25 pm
-# Author     ：XXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：
 """
@@ -955,7 +955,7 @@ class Trainer:
                 patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
 
-        # torch.save({'data': datas, 'pred': preds}, '/home/XXXXX/MMHealth/src/data_pred.pt')
+        # torch.save({'data': datas, 'pred': preds}, '/home/czhaobo/UDCHealth/src/data_pred.pt')
 
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
@@ -1033,6 +1033,12 @@ class Trainer:
                 y_true_all.append(y_true)
                 y_prob_all.append(y_prob)
 
+                # f1_score, pred = cal_data(self.model, output['y_prob'], output['labels_copy']) # med set
+                # print(f1_score, len(output['labels_copy'][0])) # 记得test_loader的batch设小点。
+                # if 8<len(output['labels_copy'][0])<=12 and f1_score[-3]>=0.35:
+                #     datas.append(data)
+                #     preds.append(pred)
+
 
                 if additional_outputs is not None:
                     for key in additional_outputs.keys():
@@ -1041,9 +1047,11 @@ class Trainer:
                 patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
 
+        # torch.save({'data': datas, 'pred': preds}, '/home/czhaobo/MMHealth/src/data_pred.pt')
+
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
-
+        # print("AAAAAAAAA", y_true_all.shape, y_prob_all.shape, np.unique(y_true_all)) # trainset要重新生成。
         outputs = [y_true_all, y_prob_all, loss_mean]
         if additional_outputs is not None:
             additional_outputs = {key: np.concatenate(val)

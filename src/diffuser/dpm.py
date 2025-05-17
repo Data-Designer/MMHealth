@@ -3,9 +3,25 @@ import torch.nn.functional as F
 import math
 import numpy as np
 import torch.distributed as dist
+ # https://news.qq.com/rain/a/20221114A03PFZ00
 
 def interpolate_fn(x: torch.Tensor, xp: torch.Tensor, yp: torch.Tensor) -> torch.Tensor:
-    
+    """Performs piecewise linear interpolation for x, using xp and yp keypoints (knots).
+    Performs separate interpolation for each channel.
+    Args:
+        x: [N, C] points to be calibrated (interpolated). Batch with C channels.
+        xp: [C, K] x coordinates of the PWL knots. C is the number of channels, K is the number of knots.
+        yp: [C, K] y coordinates of the PWL knots. C is the number of channels, K is the number of knots.
+    Returns:
+        Interpolated points of the shape [N, C].
+    The piecewise linear function extends for the whole x axis (the outermost keypoints define the outermost
+    infinite lines).
+    For example:
+    >>> calibrate1d(torch.tensor([[0.5]]), torch.tensor([[0.0, 1.0]]), torch.tensor([[0.0, 2.0]]))
+    tensor([[1.0000]])
+    >>> calibrate1d(torch.tensor([[-10]]), torch.tensor([[0.0, 1.0]]), torch.tensor([[0.0, 2.0]]))
+    tensor([[-20.0000]])
+    """
     x_breakpoints = torch.cat([x.unsqueeze(2), xp.unsqueeze(0).repeat((x.shape[0], 1, 1))], dim=2)
     num_x_points = xp.shape[1]
     sorted_x_breakpoints, x_indices = torch.sort(x_breakpoints, dim=2)

@@ -4,9 +4,9 @@
 """
 # File       : eval_dffs.py
 # Time       ：12/11/2024 1:57 pm
-# Author     ：XXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
-# Description：
+# Description： 生成aug sequence
 """
 import os
 import torch
@@ -29,13 +29,14 @@ from utils import pad_list
 
 
 def convert_input(batch_data, tokenizers, device, config_health=None):
+    # padding到相同的长度便于转为tensor
     indices, batch = batch_data
     feature_keys = ['conditions', 'drugs', 'procedures']
 
     for feature_key in feature_keys:
         # tokenizers
         # print("KKKKKKKKK", batch[feature_key])
-        batch[feature_key] = tokenizers[feature_key].batch_encode_2d(batch[feature_key])  # B,M,  m——feature没有用。
+        batch[feature_key] = tokenizers[feature_key].batch_encode_2d(batch[feature_key])
         batch[feature_key + '_hist'] = tokenizers[feature_key].batch_encode_3d(batch[feature_key + '_hist'])  # B,V,M
         origin = batch[feature_key + '_comp'].copy()
         batch[feature_key + '_comp'] = tokenizers[feature_key].batch_encode_2d(batch[feature_key + '_comp'])  # B,M
@@ -50,7 +51,7 @@ def convert_input(batch_data, tokenizers, device, config_health=None):
 
         # others
         batch[feature_key + '_comps'] = tokenizers[feature_key].batch_encode_2d(origin, padding=False,
-                                                                                truncation=False)
+                                                                                truncation=False)  # 不需要减去2,只需要能看清楚是什么就行，因为decode的时候会加上2
         batch[feature_key + '_comps_origin'] = origin  # origin ID
 
         batch['has_note'] = False
@@ -105,7 +106,7 @@ def evaluate_diff(best_model_path, config, config_health, hp_dataset, tokenizers
                                      drop_last=False,
                                      num_workers=8, pin_memory=True, persistent_workers=True, collate_fn=collate_fn_dict)
     nnet = utils.get_nnet(num_train_visit, tokenizers, **config['nnet'])
-    logging.info(f'load nnet from {config["nnet_path"]}') # 这个path哪里来的
+    logging.info(f'load nnet from {config["nnet_path"]}')
     nnet.load_state_dict(torch.load(config['nnet_path'], map_location='cpu'))
     nnet = nnet.to(device)
     # nnet.test_e_step()
@@ -141,8 +142,10 @@ def evaluate_diff(best_model_path, config, config_health, hp_dataset, tokenizers
                 indices.append(indice)
             # indices = [(np.where(row == 1)[0]+2).tolist() for row in array_prob] # 加上padding项
             tokens = tokenizers[feature_key].batch_decode_2d(indices) # indices+2
-            hard_samples[feature_key] = tokens
-
+            hard_samples[feature_key] = tokens # 没有考虑缺失的比例信息。
+        # print(hard_samples['conditions'])
+        # print("AAAAAAA", hard_samples.keys(), len(hard_samples['conditions']))
+        # print("BBBBB", hard_samples['conditions'][0])
 
         return _batch, hard_samples
 
@@ -160,12 +163,11 @@ def evaluate_diff(best_model_path, config, config_health, hp_dataset, tokenizers
     logging.info(f'sample: n_samples={len(test_dataset)}')
 
     def dpm_solver_sample(_n_samples, _sample_steps, **kwargs):
-        """去噪声"""
+        
         _z_init = torch.randn(_n_samples, *config['z_shape'], device=device)  # 从正态分布中采样噪声。 # B,3,128
         z_init2 = kwargs['z_init']
         mask = kwargs['mask'].unsqueeze(dim=-1).repeat(1, 1, config['z_shape'][1])  # B,3,128
-        _z_init = torch.where(mask, _z_init, z_init2)  # 从正态分布中采样噪声。 # B,3,128
-        # 先加噪声，重新定义schedule
+        _z_init = torch.where(mask, _z_init, z_init2)
         noise_schedule = NoiseScheduleVP(schedule='discrete',
                                          betas=torch.tensor(_betas, device=device).float())  # 选一个加噪声的方式
         def model_fn(x, t_continuous):
@@ -253,9 +255,13 @@ def augment_dataset(nnet, config, config_health, hp_dataset, tokenizers, root_to
                 if len(indice) <1:
                     indice = [max_indices[index]+2]
                 indices.append(indice)
-   
+            # indices = [(np.where(row == 1)[0]+2).tolist() for row in array_prob] # 加上padding项
             tokens = tokenizers[feature_key].batch_decode_2d(indices) # indices+2
             hard_samples[feature_key] = tokens # 没有考虑缺失的比例信息。
+        # print(hard_samples['conditions'])
+        # print("AAAAAAA", hard_samples.keys(), len(hard_samples['conditions']))
+        # print("BBBBB", hard_samples['conditions'][0])
+
         return _batch, hard_samples
 
     def get_train_generator():
@@ -277,10 +283,12 @@ def augment_dataset(nnet, config, config_health, hp_dataset, tokenizers, root_to
 
     def dpm_solver_sample(_n_samples, _sample_steps, **kwargs):
         """去噪声"""
-        _z_init = torch.randn(_n_samples, *config['z_shape'], device=device)
+
+        _z_init = torch.randn(_n_samples, *config['z_shape'], device=device)  # 从正态分布中采样噪声。 # B,3,128
         z_init2 = kwargs['z_init']
         mask = kwargs['mask'].unsqueeze(dim=-1).repeat(1, 1, config['z_shape'][1])  # B,3,128
         _z_init = torch.where(mask, _z_init, z_init2)  # 从正态分布中采样噪声。 # B,3,128
+        # 先加噪声，重新定义schedule
         noise_schedule = NoiseScheduleVP(schedule='discrete',
                                          betas=torch.tensor(_betas, device=device).float())  # 选一个加噪声的方式
         def model_fn(x, t_continuous):
@@ -319,8 +327,6 @@ def augment_dataset(nnet, config, config_health, hp_dataset, tokenizers, root_to
         aug_train_sample, aug_train_hardsample = utils.sample2dir_test(path, len(train_dataset), config['sample']['mini_batch_size'], sample_fn_train,
                          dataset.unpreprocess)
 
-
-
     # for test
     logging.info(f'sample: n_samples={len(test_dataset)}')
     with tempfile.TemporaryDirectory() as temp_path:
@@ -330,17 +336,15 @@ def augment_dataset(nnet, config, config_health, hp_dataset, tokenizers, root_to
         aug_test_sample, aug_test_hardsample = utils.sample2dir_test(path, len(test_dataset), config['sample']['mini_batch_size'], sample_fn,
                          dataset.unpreprocess)
 
-
     if config_health['MODEL'] == 'ours':
         soft = False
-        aug_train_sample = merge_miss(hp_dataset[0], aug_train_hardsample, soft=soft)  # mediffusion和我们的。
+        aug_train_sample = merge_miss(hp_dataset[0], aug_train_hardsample, soft=soft)
         aug_test_sample = merge_miss(hp_dataset[1], aug_test_hardsample, soft=soft)
     elif config_health['MODEL'] == 'MedDiff':
         soft = True
-        aug_train_sample = merge_miss(hp_dataset[0], aug_train_sample, soft=soft)  # mediffusion和我们的。
+        aug_train_sample = merge_miss(hp_dataset[0], aug_train_sample, soft=soft)
         aug_test_sample = merge_miss(hp_dataset[1], aug_test_sample, soft=soft)
 
-    # print(aug_test_sample[0])
 
     # 应当把D*3*d放到原有的dataset里面
     if root_to is not None:

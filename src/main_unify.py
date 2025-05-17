@@ -4,9 +4,9 @@
 """
 # File       : main.py
 # Time       ：23/10/2024 4:55 pm
-# Author     ：XXXX
+# Author     ：Chuang Zhao
 # version    ：python 
-# Description：
+# Description：# 为HyperHealth, diag
 """
 import os
 import sys
@@ -70,14 +70,14 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
     """
     # load datasets
     # STEP 1: load data
-    root_to = '/home/XXXX/MMHealth/data/{}/{}/processed/'.format(config['TASK'], config['DATASET'])
+    root_to = '/home/czhaobo/MMHealth/data/{}/{}/processed/'.format(config['TASK'], config['DATASET'])
 
     task_fn, mode = get_task_fn(config)
     if not os.path.exists(root_to + 'datasets_pre_stand.pkl'):
         print("Prepare dataset!")
         if config['DATASET'] == 'MIII':
             base_dataset = MIMIC3Dataset(
-                root="/home/XXXXX/HyperHealth/data/physionet.org/files/mimiciii/1.4",
+                root="/home/czhaobo/HyperHealth/data/physionet.org/files/mimiciii/1.4",
                 tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
                 code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": config['ATCLEVEL']}})}, # 这里graphcare的ATC-level是3；和我们在data阶段有差别
                 dev=False,
@@ -85,20 +85,28 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
             )
         elif config['DATASET'] == 'eICU':
             base_dataset = eICUDataset(
-                root="/home/XXXX/HyperHealth/data/physionet.org/files/eicu-crd/2.0",
+                root="/home/czhaobo/HyperHealth/data/physionet.org/files/eicu-crd/2.0",
                 tables=["diagnosis", "medication", "physicalExam", "treatment", "admissionDx"],
                 dev=False,
                 refresh_cache=False,
             )
         elif config['DATASET'] == 'MIV':
             base_dataset = MIMIC4Dataset(
-                root="/home/XXXX/HyperHealth/data/physionet.org/files/mimiciv/2.0/hosp",
+                root="/home/czhaobo/HyperHealth/data/physionet.org/files/mimiciv/2.0/hosp",
                 tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
                 code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": config['ATCLEVEL']}})}, # 4
                 dev=False,
                 refresh_cache=False,
             )
-  
+        elif config['DATASET'] == 'MIV-Note': # 这里可以通过subject_id进行联系。因为有一部分数据被MIMIC官方雪藏了。所有用2.2以上的版本
+            base_dataset = MIMIC4Dataset(
+                root="/home/czhaobo/HyperHealth/data/physionet.org/files/mimiciv/2.0/hosp",
+                tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+                code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": config['ATCLEVEL']}})}, # 4
+                dev=False,
+                refresh_cache=False,
+            )
+
         else:
             print("No such dataset!")
             return
@@ -157,8 +165,7 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
                     val_dataset = convert_dataset(val_samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=False)
                     test_dataset = convert_dataset(test_samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=False)
                 else:
-                    sample_dataset = convert_dataset(samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=True) # 需要查看是否需要load_code_convert
-                    # warm_test, cold_test = get_warm_cold_split(samples)
+                    sample_dataset = convert_dataset(samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=True)
 
                     train_dataset, val_dataset, test_dataset = split_by_patient(
                         sample_dataset, [config['RATIO'], (1 - config['RATIO']) / 2, (1 - config['RATIO']) / 2],
@@ -166,7 +173,7 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
                         warm_cold=False, # 所有的warm一次性看完。
                         seed=config['SEED']
                     )  # 这样似乎更快，固定随机种子的时候是一样的；
-
+                    # train_samples, _, test_samples = achieve_samples(train_dataset), _, achieve_samples(test_dataset)
                     save_pickle(train_dataset, root_to + 'train_dataset.pkl')
                     save_pickle(val_dataset, root_to + 'val_dataset.pkl')
                     save_pickle(test_dataset, root_to + 'test_dataset.pkl')
@@ -182,7 +189,7 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
     if augment:
         diff_config['device'] = int(config['GPU'])
         if config['DATASET'] == "MIV-Note": # 要改train_diff, eval_diff
-            diff_config['nnet']['num_contx_token'] = 10 # 这个很重要。多加了一个note作为context
+            diff_config['nnet']['num_contx_token'] = 10
         tokenizers = get_tokenizers(sample_dataset)
         if retrain or not os.path.exists(diff_config['ckpt_root']+ config['DATASET']):
             print('start retrain diffusion model!')
@@ -223,7 +230,6 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
                 train_samples = load_pickle(root_to + 'train_samples.pkl')
                 test_samples = load_pickle(root_to + 'test_samples.pkl')
 
-        # print("XXXXXXX",test_samples[0]['miss_feature'].shape,test_samples[0]['miss_feature'].device)
         train_dataset = convert_dataset(train_samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=False)
         test_dataset = convert_dataset(test_samples, dataset_name=config['DATASET'], task_name=config['TASK'], valid=False)
         # print("AAAAAA", train_dataset[0])
@@ -266,17 +272,17 @@ def run_single_config(augment=False, retrain=False, exp_num='3', pretrain=False)
 
 if __name__ == '__main__':
     retrain = False
-    augment = False # ours要开
+    augment = True # ours要开
     pretrain = False # 只有在一些二次训练的baseline上面开启。SMART, CORGAN
     if config['MODEL'] in  ['ours', 'MedDiff']:
         retrain = False
         augment = True
     elif config['MODEL'] == 'SMART' or config['MODEL'] == 'CORGAN':
-        pretrain = False
+        pretrain = True
     else:
         print('No need to retrain or augment!')
 
-    exp_num = '3' # 1 为aba
+    exp_num = '20' # 1 为aba；20 为rebutall
     print("Hi, This is Diffrm Health!")
     print("You are running on", config['DATASET'], "dataset! ", config['TASK'], "task!", config['MODEL'], "model!")
     run_single_config(augment=augment, retrain=retrain, exp_num=exp_num, pretrain=pretrain)

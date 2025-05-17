@@ -4,7 +4,7 @@
 """
 # File       : diff_utils.py
 # Time       ：5/11/2024 3:03 pm
-# Author     ：XXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：diffusion的一些工具函数
 """
@@ -96,6 +96,7 @@ def ema(model_dest: nn.Module, model_src: nn.Module, rate):
 
 
 class TrainState(object):
+    # 用于存储训练状态
     def __init__(self, optimizer, lr_scheduler, step, nnet=None, nnet_ema=None):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
@@ -230,9 +231,11 @@ def sample2dir(path, n_samples, mini_batch_size, sample_fn, tokenizers, unprepro
     hard_samples_list = defaultdict(list) # {'conditions':batch list, 'procedures':batch, 'drugs':batch}
     hard_labels_list = defaultdict(list)
     for _batch_size in tqdm(amortize(n_samples, batch_size), desc='sample2dir'): # 多取一个回合
-        labels, hard_labels, (samples, hard_samples) = sample_fn(_batch_size)
-        samples = unpreprocess_fn(samples) if unpreprocess_fn is not None else samples
-
+        labels, hard_labels, (samples, hard_samples) = sample_fn(_batch_size) # 去噪后的结果, B,3,D， 感觉或许可以传rounding
+        samples = unpreprocess_fn(samples) if unpreprocess_fn is not None else samples # 这里一旦rounding，可能就需要改下denoise
+        # samples = samples.contiguous()[:_batch_size]
+        # if accelerator.is_main_process:
+        # print("AAAAAAA", samples.shape)
         samples_list.append(samples) # B,3,D
         labels_list.append(labels)
         for feature_key in hard_samples.keys(): # {A:[[],[]]} len(A)=B
@@ -292,13 +295,21 @@ class Schedule(object):  # discrete time
         return self.skip_betas[s, t] * self.cum_betas[s] / self.cum_betas[t]
 
     def q_mean_variance(self, x0):
+        # 计算 cum_alphas 的平方根
+        # alphas_sqrt = self.cum_alphas[:self.N] ** 0.5
+        # betas_sqrt = self.cum_betas[:self.N] ** 0.5
+        # # 计算均值
+        # mean = torch.sum(stp(alphas_sqrt, x0), dim=0)
+        # # 计算方差
+        # variance = torch.sum(self.cum_alphas[1:self.N], dim=0)
+        # # 构造噪声
+        # noise = torch.randn_like(x0) * betas_sqrt.unsqueeze(1)
         n = np.ones(len(x0)) * (self.N-1)#torch.LongTensor(self.N-1).to(x0.device)
         mean = stp(self.cum_alphas[n.astype(int)] ** 0.5, x0)
 
         return mean
 
-    def sample(self, x0, mask=None):  # sample from q(xn|x0), where n is uniform；
-        n = np.random.choice(list(range(1, self.N + 1)), (len(x0),))
+    def sample(self, x0, mask=None):
         eps = torch.randn_like(x0)
         xn = stp(self.cum_alphas[n] ** 0.5, x0) + stp(self.cum_betas[n] ** 0.5, eps)
         if mask is not None:
@@ -321,19 +332,20 @@ def LSimple(x0, nnet, schedule, **kwargs):
     # rounding loss
     get_logits = nnet.get_logits
     terms = {}
-    terms["mse"] = mos(x0-model_output, reduction=False) # eps pred, 直接接近x0的表征, 所以x0不用真mask
-    loss_mse = torch.where(kwargs['mask'], terms["mse"], l1_loss).mean(dim=-1) # 为True的地方选择token loss, 这里重新思考下
+    terms["mse"] = mos(x0-model_output, reduction=False)
+    loss_mse = torch.where(kwargs['mask'], terms["mse"], l1_loss).mean(dim=-1)
 
     terms['token'] = token_loss(x0, get_logits, kwargs, nnet.feature_keys, nnet.tokenizer) # x0的。
-    terms['nll'] = token_loss(x0, get_logits, kwargs, nnet.feature_keys, nnet.tokenizer, is_mask=False) # 全部token的
+    terms['nll'] = token_loss(x0, get_logits, kwargs, nnet.feature_keys, nnet.tokenizer, is_mask=False)
+
     # mean均衡损失
-    out_mean = schedule.q_mean_variance(x0)  # 除了最后一步，每一步都要接近
-    tT_loss = mean_flat(out_mean ** 2)   # 要mean最小, T时刻的均值
+    out_mean = schedule.q_mean_variance(x0)
+    tT_loss = mean_flat(out_mean ** 2)
 
     loss_mse = loss_mse
 
     loss_round = terms['token'] + terms['nll']
-    return loss_mse, loss_round, tT_loss # 这个为啥loss-round有问题
+    return loss_mse, loss_round, tT_loss
 
 
 def mean_flat(tensor):
@@ -353,7 +365,7 @@ def token_loss(x_t, get_logits, raw_data, feature_keys, tokenizers, is_mask=True
     decoder_nll = []
     for index, feature_key in enumerate(feature_keys):
         labels = batch_to_multihot(raw_data[feature_key + '_comps'], len(tokenizers[feature_key].vocabulary))  # tensor, B, Label_size;  # convert to multihot
-        labels = labels[:, 2:]
+        labels = labels[:, 2:] # 保持大小, ywei
         labels = labels.to(reshaped_x_t.device)  # for bce loss
         
         logits = get_logits(reshaped_x_t[:,index,:], feature_key)  # bsz, voc
@@ -361,8 +373,10 @@ def token_loss(x_t, get_logits, raw_data, feature_keys, tokenizers, is_mask=True
         decoder_nll.append(loss_index)
 
     decoder_nll = torch.cat(decoder_nll, dim=-1) # B,3
-    if mask != None and is_mask:
-        decoder_nll *= mask
+    # print("AAAAAA", decoder_nll)
+    # print("CCCCC", raw_data['mask'])
+    if mask != None and is_mask: # mask位置的解码损失
+        decoder_nll *= mask  # 去掉~mask部分的token loss
         decoder_nll = decoder_nll.sum(dim=-1) / mask.sum(dim=-1)
         # print("BBBBBB", decoder_nll)
         decoder_nll = decoder_nll
@@ -401,7 +415,6 @@ def get_skip(alphas, betas):
 
 
 def get_last_visit_sample(samples):
-    """提取sample中的最后一次就诊记录"""
     last_visits = {}
     for record in samples:
         patient_id = record['patient_id']
@@ -422,19 +435,23 @@ def calculate_average_jaccard(list_a, list_b):
 
         return len(intersection) / len(union) if len(union) > 0 else 0
 
+    # 计算每对子列表的 Jaccard 相似度
     jaccard_results = [jaccard_index(a, b) for a, b in zip(list_a, list_b)]
 
+    # 计算平均 Jaccard 相似度
     average_jaccard = sum(jaccard_results) / len(jaccard_results) if jaccard_results else 0
 
     return average_jaccard
 
 
 def generate_mask(batch_size, m=3, mask_num=1):
+    # 随机生成每一行的掩码列索引
     indices = torch.randint(0, m, (batch_size, mask_num))
+    # 创建掩码矩阵
     mask = torch.zeros((batch_size, m), dtype=torch.int)
+    # 使用高级索引设置掩码
     mask[torch.arange(batch_size).unsqueeze(1), indices] = 1
     mask = mask.bool()
 
-
-    return mask
+    return mask # mask | mask2
 

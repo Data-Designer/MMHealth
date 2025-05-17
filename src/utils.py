@@ -4,7 +4,7 @@
 """
 # File       : utils.py
 # Time       ：4/11/2024 3:24 pm
-# Author     ：XXXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：several common tools
 """
@@ -210,31 +210,14 @@ def get_nonzero_values(matrix):
     return nonzero_values
 
 def create_interaction_matrix(interactions, total_drugs):
-    """
-    创建用户与药物的交互矩阵。
-
-    参数:
-    interactions : torch.Tensor
-        用户与药物的交互历史索引矩阵，形状为 [B, D]，其中 -1 表示无交互。
-    total_drugs : int
-        药物的总数。
-
-    返回:
-    torch.Tensor
-        布尔矩阵，形状为 [B, M]，标记用户与药物的交互。
-    """
     B, D = interactions.shape  # 用户数和每个用户的最大交互数
-    # 初始化用户*药物矩阵，初始值为False
     user_drug_matrix = torch.zeros((B, total_drugs), dtype=torch.bool).to(interactions.device)
 
-    # 替换-1为有效索引，因为-1不是有效的索引，我们暂时转换为0
     valid_interactions = interactions.clone()
     valid_interactions[interactions == -1] = 0
 
-    # 使用scatter_更新matrix，将对应的位置设为True
     user_drug_matrix.scatter_(1, valid_interactions, 1)
 
-    # 将无效的0索引（原来的-1）重新标记为False，仅当原始数据中该位置为-1时
     if (interactions == -1).any():
         user_drug_matrix[:, 0] = user_drug_matrix[:, 0] & (interactions != -1)
 

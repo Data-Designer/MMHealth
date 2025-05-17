@@ -4,9 +4,15 @@
 """
 # File       : unitrans.py
 # Time       ：5/11/2024 2:53 pm
-# Author     ：XXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
-# Description：
+# Description：# 联合Transformer， refer to https://github.com/thu-ml/unidiffuser/blob/main/libs/uvit_multi_post_ln_v1.py
+https://stackoverflow.com/questions/78641150/a-module-that-was-compiled-using-numpy-1-x-cannot-be-run-in-numpy-2-0-0
+https://blog.csdn.net/woai8339/article/details/131250283 (直接退出的妈的用conda装)
+https://blog.csdn.net/BigerBang/article/details/139685883
+conda install pytorch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+pip3 install xformers==0.0.23
+还是得python rather THan 3
 
 """
 import math
@@ -35,6 +41,7 @@ else:
 
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):
     # Cut & paste from PyTorch official master until it's in a few official releases - RW
+    # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
     def norm_cdf(x):
         # Computes standard normal cumulative distribution function
         return (1. + math.erf(x / math.sqrt(2.))) / 2.
@@ -289,6 +296,11 @@ class DIT(nn.Module):
 
 
 
+        #### for rebuttal
+        self.context_linear = nn.Linear(embed_dim,embed_dim,bias=True) # mlp；或者attention加一层
+
+
+
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.in_chans = in_chans
 
@@ -301,9 +313,9 @@ class DIT(nn.Module):
             nn.Linear(4 * embed_dim, embed_dim),
         ) if mlp_time_embed else nn.Identity()
 
-        self.context_embed = nn.Linear(contx_dim, embed_dim)
+        self.context_embed = nn.Linear(contx_dim, embed_dim) # B*77 * 768， 这里是text用clip提取的表征
 
-        self.extras = 1 + num_contx_token
+        self.extras = 1 + num_contx_token # 这个得随着context变化而变化。这里是时间戳和context
 
         self.pos_embed = nn.Parameter(torch.zeros(1, self.extras + num_patches, embed_dim)) # 3+1+10=14
 
@@ -373,7 +385,7 @@ class DIT(nn.Module):
 
 
     def update_centroid_emb(self, centroids_new):
-        self.context_encoder.cluster.visit_centroids = centroids_new # 也可以采用decay更新的方式
+        self.context_encoder.cluster.visit_centroids = centroids_new
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -436,7 +448,6 @@ class DIT(nn.Module):
             return scores
 
     def encode_everything_test(self, indices, **kwargs):
-        """推理的时候是寻找近似的centroid"""
         # print(**kwargs.keys()),
         has_note = kwargs['has_note']
 
@@ -446,15 +457,15 @@ class DIT(nn.Module):
             kwargs[feature_key + '_hist'] = self.visit_encoder(kwargs[feature_key + '_hist'], kwargs[feature_key + '_hist'+'_mask'],  feature_key, aggregate=True)
             kwargs[feature_key + '_comp'] = self.visit_encoder(kwargs[feature_key + '_comp'].unsqueeze(dim=1), kwargs[feature_key + '_comp'+'_mask'].unsqueeze(dim=1), feature_key, aggregate=True)
         if has_note:
-            kwargs['note' + '_hist'] = self.note_linear(kwargs['note' + '_hist'])
-            
+            kwargs['note' + '_hist'] = self.note_linear(kwargs['note' + '_hist']) # B,V,D
 
 
         x = torch.cat([kwargs[feature_key] for feature_key in feature_keys], dim=1) # [B,3,D]
 
         # centroid = self.visit_2cluster[indices]
         # centroid_emb = self.visit_centroids[centroid]
-        distances = torch.cdist(x.view(x.shape[0],-1), self.visit_centroids)
+        distances = torch.cdist(x.view(x.shape[0],-1), self.visit_centroids)  # 计算 B x K 的距离矩阵
+        #     # 找到每个样本最近的质心索引
         centroid = torch.argmin(distances, dim=1)  # 返回 B 的索引
         centroid_emb = self.visit_centroids[centroid]
 
@@ -488,6 +499,8 @@ class DIT(nn.Module):
         x = torch.cat((time_token, context_token, x), dim=1) # B 1+9+3,D
         x = x + self.pos_embed
 
+        x = self.context_linear(x)
+
         skips = []
         for blk in self.in_blocks:
             x = blk(x)
@@ -503,6 +516,7 @@ class DIT(nn.Module):
         x = self.decoder_pred(x) # # B 1+9+3,D
         assert x.size(1) == self.extras + L
         x = x[:, self.extras:, :] # contxt后面的内容
+        # x = unpatchify(x, self.in_chans)  # 变成4维度
         x = self.final_layer(x) # B, 3, D
 
         return x

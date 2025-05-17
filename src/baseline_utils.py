@@ -3,8 +3,8 @@
 
 """
 # File       : baseline_utils.py
-# Time       ：9/11/2024 10:15 am
-# Author     ：XXXXXXXX
+# Time       ：9/12/2024 10:15 am
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：baseline utils
 """
@@ -35,6 +35,7 @@ def generate_mask(dataset, config, threshold=None):
     """
     generate mask for SMART
     """
+    # 这里没啥用，得在里面进行mask
     return dataset
 
 
@@ -87,11 +88,11 @@ def valid_seq(seq):
         else:
             sub_seq = set(list(itertools.chain(*seq[:index])))
             if len(sub_seq)>1:
-                result = np.array([sublist == ['<pad>'] for sublist in seq[:index]])
+                result = np.array([sublist == ['<pad>'] for sublist in seq[:index]]) # 最后一位
                 last_index = np.where(result == False)[0][-1]
                 mark[index] = index-last_index
             else:
-                mark[index] = 10
+                mark[index] = 10 # 这里0代表pad，并且从没出现过, 使用max_len
     return mark
 
 def local_mask(data):
@@ -226,7 +227,7 @@ if __name__ == '__main__':
 
     config['TASK'] = 'PHE'
     config['DATASET'] = 'MIV-Note'
-    root_to = '/home/XXXXXX/MMHealth/data/{}/{}/processed/'.format(config['TASK'], config['DATASET'])
+    root_to = '/home/czhaobo/MMHealth/data/{}/{}/processed/'.format(config['TASK'], config['DATASET'])
     samples = load_pickle(root_to + 'datasets_pre_stand.pkl')
 
     missing_statistics(samples, config=config)

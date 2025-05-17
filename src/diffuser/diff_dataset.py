@@ -4,7 +4,7 @@
 """
 # File       : diff_dataset.py
 # Time       ：8/11/2024 5:50 pm
-# Author     ：XXXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：通用的Dataset构建方式
 """
@@ -63,6 +63,7 @@ class DatasetFactory(object):
             return dataset
 
     def unpreprocess(self, v):  # to B C H W and [0, 1]
+        # emb->img, 暂时不写， 或许可以换位rounding
         return v
 
     @property
@@ -180,7 +181,7 @@ class CFGDataset(Dataset):
         self.empty_token = empty_token
         self.note = note
         if self.note:
-            self.empty_mask = [0,0,0]
+            self.empty_mask = [0,0,0] # 可以为4， 对应修改
         else:
             self.empty_mask = [0,0,0]
 
@@ -248,7 +249,7 @@ class CFGDataset(Dataset):
             'drugs': self.samples_static[index][1],
             'procedures': self.samples_static[index][2],
             'note': self.samples_static[index][3] if self.note else 0,
-            'mask': self.sample_mask[index][:3], # if flag else self.empty_mask,
+            'mask': self.sample_mask[index][:3], # if flag else self.empty_mask, # 不显式指出需要弥补的。这里略微不一样 随机的选择一部分
             'conditions_hist': self.samples_history[index][0],
             'drugs_hist': self.samples_history[index][1],
             'procedures_hist': self.samples_history[index][2],
@@ -260,6 +261,8 @@ class CFGDataset(Dataset):
             'note_comp': self.samples_static[index][3] if self.note else 0,
         }
         return index, data_index
+
+
 
 
 class MIIIDataset(DatasetFactory):
@@ -292,7 +295,14 @@ class MIIIDataset(DatasetFactory):
         sample_static = sample_static.copy()
         mask_indices = np.random.choice(m, mask_num, replace=False)
         mask = np.zeros(m, dtype=bool)
-        mask[mask_indices] = True # 为True的话就是mask掉的。
+        mask[mask_indices] = True
+        # 使用 NumPy 进行替换
+        # sample_static = np.array(sample_static, dtype=object)
+
+        # # 转回列表（如有需要）
+        # print('A',sample_static)
+        # sample_static[np.array(mask)] = [['<pad>']]
+        # print('B',sample_static)
         for i in range(m):
             if mask[i]:
                 sample_static[i] = ['<pad>']  # 替换整个列表
@@ -301,6 +311,11 @@ class MIIIDataset(DatasetFactory):
 
 
     def transform_aug_dataset(self, dataset):
+        """aug: for healthcare
+         19627 155310 [['51881', '5070', '2762'], ['B05X', 'A02B', 'B05B'], ['9671', '9604']] [[['51881', '5070', '2762']], [['B05X', 'A02B', 'B05B', 'C05B']], [['9671', '9604']]] [0, 0, 0] [[0, 0, 0]] [['51881', '5070', '2762', '9951'], ['B05X', 'A02B', 'B05B'], ['9671', '9604']]
+        """
+
+        # loader = samples # [{patint_id: , visit_id: , conditions: , drugs_hist: , procedures: , incomplete: }]
         patient_id = []
         visit_id = []
         samples_static = []
@@ -309,14 +324,23 @@ class MIIIDataset(DatasetFactory):
         sample_mask = []
         sample_history_mask = []
 
+        # # 检查是否为嵌套列表
+        # sample = dataset[0]
+        # if isinstance(sample['conditions_raw'][0], list):
+        #     flag = True
+        # else:
+        #     flag = False
+
         for data in dataset:
+            # print("CCCCCC", data)
+            # break
             patient_id.append(data['patient_id'])
             visit_id.append(data['visit_id'])
             visit_static = [data['conditions_raw'], data['drugs'], data['procedures_raw']] 
             # visit_static = list(map(list, visit_static))
             samples_static.append(visit_static)
             mask_visit = visit_static.copy()
-            mask_sample_static.append(mask_visit) # 后面mask一定要bool
+            mask_sample_static.append(mask_visit)
             sample_mask.append(data['incomplete_raw'])
             # visit_history = list(zip(data['conditions'], data['drugs_hist'], data['procedures']))
             # visit_history = list(map(list, visit_history))
@@ -329,7 +353,7 @@ class MIIIDataset(DatasetFactory):
             else:
                 visit_history = [data['conditions'][:visit_length], data['drugs_hist'][:visit_length], data['procedures'][:visit_length]]
                 samples_history.append(visit_history)
-                sample_history_mask.append(data['incomplete'][:visit_length])
+                sample_history_mask.append(data['incomplete'][:visit_length]) # 这样方便代码书写,包含自身
 
         recon_samples = [patient_id, visit_id, samples_static, samples_history, sample_mask, sample_history_mask, mask_sample_static]
         # print("AAAA", patient_id[0], visit_id[0], samples_static[0], samples_history[0], sample_mask[0], sample_history_mask[0], mask_sample_static[0])
@@ -398,6 +422,7 @@ class MIIIDataset(DatasetFactory):
 
 class MIV_NoteDataset(DatasetFactory):
     def __init__(self, samples, aug, cfg=False, p_uncond=None, **kwargs):
+        # 这里的dataset本质上是不完整的数据集，空缺的地方为0
         super().__init__()
         print('Prepare MIV-Note dataset...')
         self.empty_context = torch.randn(10, kwargs['config'][
@@ -429,6 +454,13 @@ class MIV_NoteDataset(DatasetFactory):
         mask_indices = np.random.choice(m, mask_num, replace=False) # 随机生成，这里generate MASK可以自定义。使用更多的mask模式
         mask = np.zeros(m, dtype=bool)
         mask[mask_indices] = True
+        # 使用 NumPy 进行替换
+        # sample_static = np.array(sample_static, dtype=object)  # 转换为 NumPy 数组
+
+        # # 转回列表（如有需要）
+        # print('A',sample_static)
+        # sample_static[np.array(mask)] = [['<pad>']]
+        # print('B',sample_static)
         for i in range(m):
             if mask[i]:
                 sample_static[i] = ['<pad>']  # 替换整个列表
@@ -440,6 +472,8 @@ class MIV_NoteDataset(DatasetFactory):
         """aug: for healthcare
          19627 155310 [['51881', '5070', '2762'], ['B05X', 'A02B', 'B05B'], ['9671', '9604']] [[['51881', '5070', '2762']], [['B05X', 'A02B', 'B05B', 'C05B']], [['9671', '9604']]] [0, 0, 0] [[0, 0, 0]] [['51881', '5070', '2762', '9951'], ['B05X', 'A02B', 'B05B'], ['9671', '9604']]
         """
+
+        # loader = samples # [{patint_id: , visit_id: , conditions: , drugs_hist: , procedures: , incomplete: }]
         patient_id = []
         visit_id = []
         samples_static = []
@@ -448,18 +482,21 @@ class MIV_NoteDataset(DatasetFactory):
         sample_mask = []
         sample_history_mask = []
         for data in dataset:
+            # print("CCCCCC", data)
+            # break
             patient_id.append(data['patient_id'])
             visit_id.append(data['visit_id'])
             # print("AAAAAAAAAAAAAAAAAA", data['conditions_raw'])
-            visit_static = [data['conditions_raw'], data['drugs'], data['procedures_raw'],data['note'][-1]]
+            visit_static = [data['conditions_raw'], data['drugs'], data['procedures_raw'],data['note'][-1]] # static是4个 hist也是4个，但是mask是3个
+            # visit_static = list(map(list, visit_static))
             samples_static.append(visit_static)
             mask_visit = visit_static.copy()
-            mask_sample_static.append(mask_visit)
+            mask_sample_static.append(mask_visit) # 后面mask一定要bool
             sample_mask.append(data['incomplete_raw'])
             # visit_history = list(zip(data['conditions'], data['drugs_hist'], data['procedures']))
             # visit_history = list(map(list, visit_history))
             visit_length = len(data['conditions'])
-            if visit_length < 2:
+            if visit_length < 2:  
                 visit_his_cond, visit_his_drug, visit_his_proc, visit_his_note = [['<pad>']],[['<pad>']],[['<pad>']], [[1.]*768]
                 visit_his_cond_m, visit_his_drug_m, visit_his_proc_m, visit_his_note_m = [True], [True], [True], [True]
                 samples_history.append([visit_his_cond, visit_his_drug, visit_his_proc, visit_his_note])
@@ -476,6 +513,12 @@ class MIV_NoteDataset(DatasetFactory):
 
 
     def transform_dataset(self, samples, cfg=False):
+        """train:diff_dataset
+
+        AAAA 19627 155310 [['51881', '5070', '2762'], ['B05X', 'A02B', 'B05B'], ['<pad>']] [[['<pad>']], [['<pad>']], [['<pad>']]] [False, False, True] [[True], [True], [True]] [['51881', '5070', '2762'], ['B05X', 'A02B', 'B05B',], ['<pad>']]
+
+        """
+        # 时序转换为静态 # 最后training SAMPLE可以额外存储hard / soft emb
         samples = get_last_visit_sample(samples)
         patient_id = []
         visit_id = []
@@ -503,8 +546,9 @@ class MIV_NoteDataset(DatasetFactory):
                         sample_history_mask.append([visit_his_cond_m, visit_his_drug_m, visit_his_proc_m, visit_his_note_m])
                     else:
                         samples_history.append([patient['conditions'][:visit], patient['drugs_hist'][:visit], patient['procedures'][:visit], patient['note'][:visit]])
-                        sample_history_mask.append(patient['incomplete'][:visit])
+                        sample_history_mask.append(patient['incomplete'][:visit]) # 这样方便代码书写,包含自身
                 else:
+                    # 没法检验，对于那些缺失的visit
                     continue
         recon_samples = [patient_id, visit_id, samples_static, samples_history, sample_mask, sample_history_mask, mask_sample_static]
         print("AAAA", patient_id[0], visit_id[0], samples_static[0], samples_history[0], sample_mask[0], sample_history_mask[0], mask_sample_static[0])
@@ -527,7 +571,9 @@ class MIV_NoteDataset(DatasetFactory):
 
 
 def collate_fn_dict(batchs):
-    indices, batch = zip(*batchs)
+    indices, batch = zip(*batchs)  # 解压索引和数据
+    # data_tensor = torch.tensor(data)
+    # return torch.tensor(indices), data_tensor
     return torch.tensor(indices), {key: [d[key] for d in batch] for key in batch[0]}
 
 
@@ -538,9 +584,9 @@ def get_dataset(name, aug, **kwargs):
     if name == 'MIII':
         return MIIIDataset(cfg=cfg, p_uncond=p_uncond, **kwargs)
     elif name == 'MIV-Note':
-        return MIV_NoteDataset(cfg=cfg, p_uncond=p_uncond, **kwargs)
+        return MIV_NoteDataset(cfg=cfg, p_uncond=p_uncond, **kwargs) # LOS改为MIII，不然内存爆炸
     elif name == "eICU":
-        return MIIIDataset(cfg=cfg, p_uncond=p_uncond, **kwargs)
+        return MIIIDataset(cfg=cfg, p_uncond=p_uncond, **kwargs) # 本质没有什么差别
     else:
         raise ValueError(f"Unknown dataset: {name}")
 
@@ -553,6 +599,7 @@ def merge_miss(dataset, new_feature, soft=True):
         print((len(new_feature['conditions']), len(dataset)))
         for index, data in enumerate(dataset):
             for ind , feature_name in enumerate(feature_keys):
+                
                 data['new_' + feature_name] = new_feature[feature_name][index]
             samples.append(data)
         return samples
@@ -563,7 +610,6 @@ def merge_miss(dataset, new_feature, soft=True):
             data['miss_feature'] = [new_feature[feature_key][index] for feature_key in feature_keys]
             samples.append(data)
 
-        # 两次， 补全+原始
         patient_miss_data = {}
         for index, data in enumerate(samples):
             visit_id, patient_id = data['visit_id'], data['patient_id']
@@ -579,6 +625,11 @@ def merge_miss(dataset, new_feature, soft=True):
             patient_id = data['patient_id']
             for index, feature_key in enumerate(feature_keys):
                 data['new_' + feature_key] = [patient_miss_data[patient_id][visit][index] for visit in data['visit_id_hist']]
+            # data['new_conditions'] = [patient_miss_data[patient_id][visit][0] for visit in data['visit_id_hist']]
+            # data['new_drugs'] = [patient_miss_data[patient_id][visit][1] for visit in data['visit_id_hist']]
+            # data['new_procedures'] = [patient_miss_data[patient_id][visit][2] for visit in data['visit_id_hist']]
             new_samples.append(data)
+        print("AAAAA",samples[0])
+        print("BBBBB", new_samples[0])
         return new_samples
 

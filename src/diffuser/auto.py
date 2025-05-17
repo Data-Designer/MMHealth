@@ -4,7 +4,7 @@
 """
 # File       : auto.py
 # Time       ：11/11/2024 10:10 am
-# Author     ：XXXXXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：auto encoder; 如何在latent领域进行diffusion
 """

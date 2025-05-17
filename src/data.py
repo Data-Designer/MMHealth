@@ -4,7 +4,7 @@
 """
 # File       : data.py
 # Time       ：4/11/2024 3:25 pm
-# Author     ：XXXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：several task definition
 """
@@ -50,7 +50,7 @@ def re_generate_dataset(samples, seed):
 
 def convert_dataset(samples, dataset_name=None, task_name=None, valid=True, all=False):
     """避免繁琐的处理"""
-    if valid: # valid仅适用于第一次sample dataset的处理
+    if valid:
         return SampleEHRDataset(
                         samples,
                         dataset_name=dataset_name,
@@ -70,7 +70,7 @@ class SampleEHRDatasetSIMPLE(SampleBaseDataset):
         super().__init__(samples, dataset_name, task_name)
         self.samples = samples
         if all:
-            self.input_info: Dict = self._validate()
+            self.input_info: Dict = self._validate() # 别的不需要valid，大大减少时间
 
 
     @property
@@ -177,7 +177,6 @@ def create_label_for_phenotyping(path):
         definitions = yaml.load(definitions_file, Loader = yaml.FullLoader)
 
     code_to_group = {}
-    # print(definitions['Tuberculosis']) # examine the structure of the definitions
     for group in definitions:
         codes = definitions[group]['codes']
         for code in codes:
@@ -204,32 +203,24 @@ def get_visit_phenotype(code_to_group, diagnose_visit: List[str]):
 
 
 
-path = '/home/XXXX/MMHealth/data/'
+path = '/home/czhaobo/MMHealth/data/'
 code_to_group, group_to_id, id_to_group = create_label_for_phenotyping(path)
 
-note_dict = get_note(config, "/home/XXXXX/HyperHealth/data/physionet.org/files/mimic-iv-note/2.2/") if config['DATASET'] =='MIV-Note' else None
+# basline别的数据集注释掉if，不然报错。
+note_dict = get_note(config, "/home/czhaobo/HyperHealth/data/physionet.org/files/mimic-iv-note/2.2/") if config['DATASET'] =='MIV-Note' else None
 
 
-# 定义查询函数
-# def extract_patient_note(patient_id, visit_id):
-#     mask = (keys[:, 0] == patient_id) & (keys[:, 1] == visit_id)
-#     return values[mask][0] if np.any(mask) else [0.0] * 768
-#
-# def extract_patient_note(patient_id, visit_id):
-#     zero_tenor = [0.0] * 768 # 这个768可以根据不同的PLM进行调整。
-#     tmp = patient_id + '_'+ visit_id
-#     match_resut = note_dict.get(tmp, '<pad>')
-#     print(match_resut)
-#     return note_dict.get(tmp, zero_tenor)
 
 def extract_patient_note(patient_id, visit_id):
-    zero_tenor = [1.0] * 768
-    if (patient_id, visit_id) in note_dict.index:
+    zero_tenor = [1.0] * 768 # 这个768可以根据不同的PLM进行调整。
+    if (patient_id, visit_id) in note_dict.index: # 这个需要宠幸跑
+        # 访问索引并获取 C 列的值
         return note_dict.loc[(patient_id, visit_id), 'note_emb']
     else:
+        # 如果没找到，返回 768 维的零向量
         return zero_tenor
 
-def filter_lists(A, B, C, label):
+def filter_lists(A, B, C, label): # 对retain-grasp这些baseline，这里用unk而不是pad
     # Check if D is empty
     if isinstance(label, list) and len(label) == 0:
         return None  # or return empty lists if preferred
@@ -251,6 +242,23 @@ def filter_lists(A, B, C, label):
 
 ####### Phe experiment
 def phe_prediction_miii_fn(patient: Patient):
+    """
+    处理的是一个patient的数据
+    Examples:
+        {
+            'visit_id': '174162',
+            'patient_id': '107',
+            'conditions': [['139', '158', '237', '99', '60', '101', '51', '54', '53', '133', '143', '140', '117', '138', '55']],
+            "incomplete":  [[False, False, False]]
+            'procedures': [['4443', '4513', '3995']],
+            'drugs_hist': [['1150', '0005', '6365', '0090', '6155', '0005', '0090', '0000', '6373']],
+            'drugs':['1150', '0005', '6365', '0090', '6155', '0005', '0090', '0000', '6373'],
+            'conditions_raw': ['139', '158', '237', '99', '60', '101', '51', '54', '53', '133', '143', '140', '117', '138', '55']
+            'procedures_raw': ['4443', '4513', '3995'],
+            'incomplete_raw': [False, False, False],
+            'labels':['X','B','C']
+        }
+    """
     samples = []
     for i in range(len(patient)-1): # visit 次数
         visit: Visit = patient[i]
@@ -319,6 +327,12 @@ def phe_prediction_miii_fn(patient: Patient):
         samples[i]["visit_id_hist"] = samples[i - 1]["visit_id_hist"] + [
             samples[i]["visit_id_hist"]
         ]
+
+    # # remove the target drug from the history，disease prediction不需要
+    # for i in range(len(samples)): # 都是最后一位
+    #     samples[i]["drugs_hist"][i] = ['<pad>','<pad>','<pad>'] # 去掉target
+    #     # 时序对齐的padding
+    #     samples[i]["drugs_hist"] = [samples[i]["drugs_hist"][i]] + samples[i]["drugs_hist"][:i]
     return samples
 
 
@@ -358,7 +372,7 @@ def phe_prediction_miv_note_fn(patient: Patient):
                 "procedures": procedures,
                 "drugs_hist": drugs,
                 "visit_id_hist": visit.visit_id, #['1']
-                "note": extract_patient_note(int(patient.patient_id), int(visit.visit_id)), 
+                "note": extract_patient_note(int(patient.patient_id), int(visit.visit_id)), # 暂时不把它当模态, 所以有没有都行； 不然会大幅度减少数据
                 "drugs": drugs,  # （used for diffusion） cur
                 "conditions_raw": conditions,
                 "procedures_raw": procedures,
@@ -436,13 +450,12 @@ def phe_prediction_eicu_fn(patient: Patient):
                 "drugs": drugs,  # used for diffusion
                 "conditions_raw": conditions,
                 "procedures_raw": procedures,
-                "incomplete_raw": mask,  # [False, False, False], 被mask掉的地方为True，即缺失的地方为True
+                "incomplete_raw": mask,
                 "labels": next_pheno,
             }
         )
 
-    # exclude: patients with less than 1 visit
-    if len(samples) < 1:  # [{visit 1},{visit 2}], 有1的话，其实本身就至少有2次visit
+    if len(samples) < 1:
         return []
 
     samples[0]["conditions"] = [samples[0]["conditions"]]
@@ -451,7 +464,7 @@ def phe_prediction_eicu_fn(patient: Patient):
     samples[0]["incomplete"] = [samples[0]["incomplete"]]
     samples[0]["visit_id_hist"] = [samples[0]["visit_id_hist"]]
 
-    for i in range(1, len(samples)):  # 第二次，到第N次，一个patient创建一个samples数据，迭代创建
+    for i in range(1, len(samples)):
         samples[i]["conditions"] = samples[i - 1]["conditions"] + [
             samples[i]["conditions"]
         ]
@@ -475,6 +488,18 @@ def phe_prediction_eicu_fn(patient: Patient):
 
 
 def categorize_los(days: int):
+    """Categorizes length of stay into 10 categories.
+
+    One for ICU stays shorter than a day, seven day-long categories for each day of
+    the first week, one for stays of over one week but less than two,
+    and one for stays of over two weeks.
+
+    Args:
+        days: int, length of stay in days
+
+    Returns:
+        category: int, category of length of stay
+    """
     # ICU stays shorter than a day
     if days < 1:
         return 0
@@ -503,6 +528,11 @@ def los_prediction_miii_fn(patient: Patient):
         # ATC 3 level
         drugs = [drug[:4] for drug in drugs]
 
+        # # exclude: visits without condition, procedure, or drug code
+        # if len(conditions) * len(procedures) * len(drugs) == 0: # bixu药在los之前
+        #     continue
+
+
         # TODO: should also exclude visit with age < 18
         los_days = (visit.discharge_time - visit.encounter_time).days
         los_category = categorize_los(los_days)
@@ -525,7 +555,7 @@ def los_prediction_miii_fn(patient: Patient):
                 "drugs_hist": [drugs],
                 "visit_id_hist": [visit.visit_id], #['1']
                 "drugs": drugs,  # used for diffusion
-                "conditions_raw": conditions,
+                "conditions_raw": conditions, # 可能出现问题所有框起来？
                 "procedures_raw": procedures,
                 "incomplete_raw": mask,  # [False, False, False], 被mask掉的地方为True，即缺失的地方为True
                 "labels": los_category,
@@ -592,10 +622,10 @@ def los_prediction_miv_note_fn(patient: Patient):
                 "conditions": [conditions],
                 "procedures": [procedures],
                 "drugs_hist": [drugs],
-                "note": [extract_patient_note(int(patient.patient_id), int(visit.visit_id))],
+                "note": [extract_patient_note(int(patient.patient_id), int(visit.visit_id))],  # 暂时不把它当模态
                 "visit_id_hist": [visit.visit_id], #['1']
                 "drugs": drugs,  # used for diffusion
-                "conditions_raw": conditions,
+                "conditions_raw": conditions, # 可能出现问题所有框起来？
                 "procedures_raw": procedures,
                 "incomplete_raw": mask,  # [False, False, False], 被mask掉的地方为True，即缺失的地方为True
                 "labels": los_category,
@@ -624,6 +654,7 @@ def los_prediction_miv_note_fn(patient: Patient):
     return samples
 
 def los_prediction_eicu_fn(patient: Patient):
+    # 不知道length of stay是否有
     samples = []
     for visit in patient:
         conditions = visit.get_code_list(table="diagnosis")
@@ -685,8 +716,6 @@ def los_prediction_eicu_fn(patient: Patient):
 
 
 
-
-
 ########## others except for task definitions
 def generate_patient_group(samples, path):
     last_visits = get_last_visit_sample(samples).values()
@@ -710,7 +739,38 @@ def generate_patient_group(samples, path):
     print("group patient id generate done!")
     return
 
-
+# def generate_patient_group(samples, path): # OMOP数据集只有一个表征，所以没有缺失多个的。
+#     """生成患者组"""
+#     last_visits = get_last_visit_sample(samples).values()
+#     group_patient = {'comp':[], 'miss': [], 'miss-cond':[], 'miss-proc':[], 'miss-drug':[], 'miss-more':[]}
+#
+#     for record in last_visits:
+#         patient_id = record['patient_id']
+#         incomplete = np.array(record['incomplete']) # [[1,1,0],[1,0,1],[1,1,1]]
+#
+#         max_num = len(incomplete) * 3
+#         count = 0
+#         if incomplete.sum() < max_num:
+#             group_patient['miss'].append(patient_id)
+#             if incomplete[:, 0].sum() < len(incomplete):
+#                 group_patient['miss-cond'].append(patient_id)
+#                 count += 1
+#             elif incomplete[:, 1].sum() < len(incomplete) :
+#                 group_patient['miss-proc'].append(patient_id)
+#                 count += 1
+#             elif incomplete[:, 2].sum() < len(incomplete):
+#                 group_patient['miss-drug'].append(patient_id)
+#                 count += 1
+#             if count > 1:
+#                 group_patient['miss-more'].append(patient_id)
+#         else:
+#             group_patient['comp'].append(patient_id)
+#
+#
+#
+#     save_pickle(group_patient, path + 'group_patient.pkl')
+#     print("group patient id generate done!")
+#     return
 
 
 def decompress_csv_gz(folder_path):
@@ -728,14 +788,14 @@ def decompress_csv_gz(folder_path):
 
 if __name__ == '__main__':
     # # create_label_for_phenotyping(config['data']['path'])
-    # path = '/home/XXX/MMHealth/data/'
+    # path = '/home/czhaobo/MMHealth/data/'
     # code_to_group, group_to_id, id_to_group = create_label_for_phenotyping(path)
     # print('generate done!')
     # # suppose we have ['01000', '01001', '01002', '01003', '01004'] for one visit, get corresponding phenotyping label
     # diagnose_visit = ['01000', '01001', '01002', '01003', '01004']
     # cur_labels = get_visit_phenotype(code_to_group, diagnose_visit)
     # print(cur_labels)
-    decompress_csv_gz('/home/XXXX/HyperHealth/data/physionet.org/files/mimic-iv-note/2.2/note/') # 暂时不要解压
+    decompress_csv_gz('/home/czhaobo/HyperHealth/data/physionet.org/files/mimic-iv-note/2.2/note/') # 暂时不要解压
 
 
 

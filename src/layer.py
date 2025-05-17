@@ -4,7 +4,7 @@
 """
 # File       : layer.py
 # Time       ：4/11/2024 4:53 pm
-# Author     ：XXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：可扩展的layer
 """

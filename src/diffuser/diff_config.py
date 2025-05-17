@@ -4,22 +4,22 @@
 """
 # File       : diff_config.py
 # Time       ：8/11/2024 5:12 pm
-# Author     ：XXXXXX
+# Author     ：Chuang Zhao
 # version    ：python 
 # Description：
 """
 
-class DIFFCONFIG():
+class DIFFCONFIG(): # 不要有drugs
     """DRL config"""
     seed = 528
     device = 6
     warm = 10
     benchmark = False
 
-    ckpt_root = '/home/XXX/MMHealth/log/difflog/ckpt/'
-    sample_dir = '/home/XXX/MMHealth/log/difflog/sample/'
-    workdir = '/home/XXX/MMHealth/log/difflog/work_dir/' # wandb
-    output_path = '/home/XXXX/MMHealth/log/difflog/work_dir/output.log'
+    ckpt_root = '/home/czhaobo/MMHealth/log/difflog/ckpt/'
+    sample_dir = '/home/czhaobo/MMHealth/log/difflog/sample/'
+    workdir = '/home/czhaobo/MMHealth/log/difflog/work_dir/' # wandb
+    output_path = '/home/czhaobo/MMHealth/log/difflog/work_dir/output.log'
     z_shape = (3, 128)
     train_val_num = 50
     dim=128
@@ -49,7 +49,7 @@ class DIFFCONFIG():
     sample = {
         'mini_batch_size': 16, # 训练的时候搞大点似乎也行； 但是eCIU不行，数量太少了，一次不够；
         'scale': 1,
-        'path': '/home/XXX/MMHealth/log/difflog/eval_sample/',
+        'path': '/home/czhaobo/MMHealth/log/difflog/eval_sample/',
         'sample_steps': 20, # dpm solver用更少的步
         'n_samples': 10000,
     }
@@ -108,6 +108,8 @@ class DIFFCONFIG():
         'batch_size': 16,
         'log_interval': 10000, # 就直接存
         'eval_epoch': 5, # 3 eoch eval一次, 比max小1个
+        # 'save_interval': 1000,
+        # 'n_steps': 5000 # 这里的值 wrong
     }
 
 
